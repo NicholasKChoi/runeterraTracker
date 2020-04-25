@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -33,11 +34,36 @@ var (
 	// todo udpate the legendHost based on the legendsPort (when it changes)
 	// url.Parse -- but I personally find this code hard to read.
 	legendHost = fmt.Sprintf("http://localhost:%d", legendsPort)
+
+	cardCodeToName = make(map[string]string)
 )
 
 type StaticDeckList struct {
 	DeckCode    string
 	CardsInDeck map[string]int
+}
+
+type Cards []struct {
+	CardCode    string
+	CardName    string `json:"name"`
+}
+
+func fillCardCodeToNameMap() error{
+	jsonFile, err := os.Open("../en_us/data/set1-en_us.json")
+	if err != nil {
+		return errors.Wrap(err, "Unable to set json file.")
+	}
+
+	cards := Cards{}
+	dec := json.NewDecoder(jsonFile)
+	if err = dec.Decode(&cards); err != nil {
+		return errors.Wrap(err, "json file could not be interpreted as a set list.")
+	}
+
+	for _, item := range cards {
+		cardCodeToName[item.CardCode] = item.CardName
+	}
+	return nil
 }
 
 func getDeckList() (StaticDeckList, error) {
@@ -59,6 +85,16 @@ func getDeckList() (StaticDeckList, error) {
 	return sdl, nil
 }
 
+func convertDeckListCodesToNames(list *StaticDeckList) StaticDeckList{
+	deckTracker := make(map[string]int)
+	for key, value := range list.CardsInDeck {
+		cardName := cardCodeToName[key]
+		deckTracker[cardName] = value
+	}
+	list.CardsInDeck = deckTracker
+	return *list
+}
+
 type mainLoopArgs struct {
 }
 
@@ -76,7 +112,7 @@ func mainloop(args mainLoopArgs) {
 				// %+v prints error with the back trace
 				fmt.Println("encountered error fetching new decklist value:\n", err)
 			} else {
-				currentDeckList = newdecklist
+				currentDeckList = convertDeckListCodesToNames(&newdecklist)
 				spew.Dump(currentDeckList)
 			}
 
@@ -105,6 +141,9 @@ func main() {
 	//fmt.Printf("Contents:\n%s", string(bytz))
 
 	// start the mainloop of the deck tracker
+	if err := fillCardCodeToNameMap(); err != nil {
+		log.Fatal(err)
+	}
 	args := mainLoopArgs{}
 	mainloop(args)
 }
