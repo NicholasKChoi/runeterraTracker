@@ -38,6 +38,16 @@ var (
 	cardCodeToName = make(map[string]string)
 )
 
+type PositionalRectangles struct {
+	GameState   string
+	Rectangles  Rectangles
+}
+
+type Rectangles []struct {
+	CardCode    string
+	LocalPlayer bool
+}
+
 type StaticDeckList struct {
 	DeckCode    string
 	CardsInDeck map[string]int
@@ -85,15 +95,33 @@ func getDeckList() (StaticDeckList, error) {
 	return sdl, nil
 }
 
-func convertDeckListCodesToNames(list *StaticDeckList) StaticDeckList{
+func getCardPos() (PositionalRectangles, error) {
+	cardPos := PositionalRectangles{}
+
+	endpoint := fmt.Sprintf("%s/positional-rectangles", legendHost)
+	resp, err := http.Get(endpoint)
+	if err != nil {
+		return cardPos, errors.Wrap(err, "getting card positions failed")
+	}
+
+	dec := json.NewDecoder(resp.Body)
+	err = dec.Decode(&cardPos)
+	if err != nil {
+		return cardPos, errors.Wrap(err, "response could not be interpreted as card positions")
+	}
+	return cardPos, nil
+}
+
+func convertDeckListCodesToNames(list StaticDeckList) StaticDeckList{
 	deckTracker := make(map[string]int)
 	for key, value := range list.CardsInDeck {
 		cardName := cardCodeToName[key]
 		deckTracker[cardName] = value
 	}
 	list.CardsInDeck = deckTracker
-	return *list
+	return list
 }
+
 
 type mainLoopArgs struct {
 }
@@ -102,20 +130,27 @@ func mainloop(args mainLoopArgs) {
 	var (
 		signalUpdateDecklist = time.NewTicker(4 * time.Second)
 		currentDeckList      = StaticDeckList{}
+		currentCardPositions = PositionalRectangles{}
 	)
-
+	
 	for {
 		select {
 		case <-signalUpdateDecklist.C:
-			newdecklist, err := getDeckList()
+			newDeckList, err := getDeckList()
 			if err != nil {
 				// %+v prints error with the back trace
-				fmt.Println("encountered error fetching new decklist value:\n", err)
+				fmt.Println("encountered error fetching new decklist value:", err)
 			} else {
-				currentDeckList = convertDeckListCodesToNames(&newdecklist)
+				currentDeckList = convertDeckListCodesToNames(newDeckList)
 				spew.Dump(currentDeckList)
 			}
-
+			newCardPos, err := getCardPos()
+			if err != nil {
+				fmt.Println("encountered error fetching card positions:", err)
+			} else {
+				currentCardPositions = newCardPos
+				spew.Dump(currentCardPositions)
+			}
 		}
 
 		// state processing
